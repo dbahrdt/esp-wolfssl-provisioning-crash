@@ -1,0 +1,4 @@
+#The firmware file, relative to your cwd
+file build/mwe-wolfssl-crash.elf
+target remote :3333
+set remote hardware-watchpoint-limit 2

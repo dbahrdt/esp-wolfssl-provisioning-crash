@@ -1,0 +1,12 @@
+#!/bin/bash
+
+SCRIPT=$(readlink -f $0)
+SCRIPTPATH=`dirname $SCRIPT`
+BASE_PATH=${SCRIPTPATH}
+PROJECT_DIR=`realpath ${BASE_PATH}`
+
+echo "Generating hap data"
+$HOMEKIT_PATH/tools/factory_nvs_gen/factory_nvs_gen.py 12345678 70SX data/hap_12345678_70SX
+
+echo "Generating CA and certificates"
+${BASE_PATH}/components/web/certs/gen

@@ -1,0 +1,10 @@
+#!/bin/bash
+SCRIPT=$(readlink -f $0)
+SCRIPTPATH=`dirname $SCRIPT`
+BASE_PATH=${SCRIPTPATH}
+PROJECT_DIR=`realpath ${BASE_PATH}`
+
+cd ${BASE_PATH}
+./gen-data
+#clean, erase_flash, flash, monitor, provision
+${PROJECT_DIR}/tools/debugging/run -cefmp

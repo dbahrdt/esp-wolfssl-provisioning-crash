@@ -1,0 +1,13 @@
+#Full path to the serial device used for communication with the device
+MONITOR_PORT="/dev/ttyUSB1"
+#Full path to the serial device used for JTAG debugging
+JTAG_PORT="/dev/ttyUSB0"
+#Path relative to project directory
+HAP_DATA="data/hap_12345678_70SX.bin"
+
+#The posession-of-proof string
+POP="106000115"
+#SSID of the target network
+SSID=
+#PSK (pre-shared key) of the target network
+PASSPHRASE=

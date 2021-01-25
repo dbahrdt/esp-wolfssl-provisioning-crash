@@ -1,0 +1,70 @@
+#!/bin/bash
+SCRIPT=$(readlink -f $0)
+SCRIPTPATH=`dirname $SCRIPT`
+BASE_PATH=${SCRIPTPATH}
+PROJECT_DIR=`realpath ${BASE_PATH}/../../`
+
+# saner programming env: these switches turn some bugs into errors
+set -o errexit -o pipefail -o noclobber -o nounset
+
+# -allow a command to fail with !’s side effect on errexit
+# -use return value from ${PIPESTATUS[0]}, because ! hosed $?
+! getopt --test > /dev/null 
+if [[ ${PIPESTATUS[0]} -ne 4 ]]; then
+    echo 'I’m sorry, `getopt --test` failed in this environment.'
+    exit 1
+fi
+
+OPTIONS=nh
+LONGOPTS=no-reset,help
+
+# -regarding ! and PIPESTATUS see above
+# -temporarily store output to be able to check for errors
+# -activate quoting/enhanced mode (e.g. by writing out “--options”)
+# -pass arguments only via   -- "$@"   to separate them correctly
+! PARSED=$(getopt --options=$OPTIONS --longoptions=$LONGOPTS --name "$0" -- "$@")
+if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+    # e.g. return value is 1
+    #  then getopt has complained about wrong arguments to stdout
+    exit 2
+fi
+# read getopt’s output this way to handle the quoting right:
+eval set -- "$PARSED"
+
+do_reset="y"
+# now enjoy the options in order and nicely split until we see --
+while true; do
+    case "$1" in
+        -n|--no-reset)
+            do_reset="n"
+            shift
+            ;;
+        -h|--help)
+            echo "cgdb -[-n]o-reset"
+            echo "no-reset: don't reset chip on connect"
+            exit 0
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            echo "Programming error"
+            exit 3
+            ;;
+    esac
+done
+
+
+if [ "$do_reset" = "y" ]; then
+	(
+		cd $PROJECT_DIR
+		cgdb -d xtensa-esp32-elf-gdb -- --command=${BASE_PATH}/gdbinit
+	)
+else
+	(
+		cd $PROJECT_DIR
+		cgdb -d xtensa-esp32-elf-gdb -- --command=${BASE_PATH}/gdbinit_noreset
+	)
+fi

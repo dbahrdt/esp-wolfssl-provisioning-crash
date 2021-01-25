@@ -1,0 +1,59 @@
+I (18998) esp_https_server: performing session handshake
+Guru Meditation Error: Core  0 panic'ed (LoadProhibited). Exception was unhandled.
+
+Core  0 register dump:
+PC      : 0x401ac69f  PS      : 0x00060b30  A0      : 0x80179782  A1      : 0x3ffd3490  
+0x401ac69f: fp_lshd at /builds/esp-components/esp-wolfssl/wolfssl/wolfcrypt/src/tfm.c:3214 (discriminator 2)
+
+A2      : 0x3ffda70c  A3      : 0xffffffbf  A4      : 0x3ffda70c  A5      : 0x00000040  
+A6      : 0x00000001  A7      : 0x00000022  A8      : 0x9cb0b704  A9      : 0x172cc3ff  
+A10     : 0x172cc3fe  A11     : 0x00000087  A12     : 0x58326e78  A13     : 0x00000001  
+A14     : 0x3ffda068  A15     : 0x00000022  SAR     : 0x00000001  EXCCAUSE: 0x0000001c  
+EXCVADDR: 0x9cb0b70c  LBEG    : 0x4000c2e0  LEND    : 0x4000c2f6  LCOUNT  : 0x00000000  
+
+Backtrace:0x401ac69c:0x3ffd3490 0x4017977f:0x3ffd34b0 0x401799e6:0x3ffd3500 0x40179cbf:0x3ffd3520 0x40179f36:0x3ffd3540 0x4017a3a5:0x3ffd3590 0x4017a3c6:0x3ffd35b0 0x4016cffa:0x3ffd35d0 0x4016d309:0x3ffd3610 0x4016d73a:0x3ffd3650 0x4016d831:0x3ffd36a0 0x4016d856:0x3ffd36e0 0x4017c849:0x3ffd3710 0x401835c3:0x3ffd3750 0x4015a11c:0x3ffd37d0 0x40121102:0x3ffd37f0 0x40120969:0x3ffd3810 0x400dec44:0x3ffd3830 0x4012266e:0x3ffd3850 0x40121272:0x3ffd3880 0x40121413:0x3ffd38d0 0x4012144f:0x3ffd3910 0x40088bf1:0x3ffd3930
+0x401ac69c: fp_lshd at /builds/esp-components/esp-wolfssl/wolfssl/wolfcrypt/src/tfm.c:3214 (discriminator 2)
+
+0x4017977f: fp_div at /builds/esp-components/esp-wolfssl/wolfssl/wolfcrypt/src/tfm.c:642
+
+0x401799e6: fp_mod at /builds/esp-components/esp-wolfssl/wolfssl/wolfcrypt/src/tfm.c:834
+
+0x40179cbf: fp_mulmod at /builds/esp-components/esp-wolfssl/wolfssl/wolfcrypt/src/tfm.c:1173
+
+0x40179f36: _fp_exptmod at /builds/esp-components/esp-wolfssl/wolfssl/wolfcrypt/src/tfm.c:1526
+
+0x4017a3a5: fp_exptmod at /builds/esp-components/esp-wolfssl/wolfssl/wolfcrypt/src/tfm.c:2267
+
+0x4017a3c6: mp_exptmod at /builds/esp-components/esp-wolfssl/wolfssl/wolfcrypt/src/tfm.c:3531
+
+0x4016cffa: wc_RsaFunctionSync at /builds/esp-components/esp-wolfssl/wolfssl/wolfcrypt/src/rsa.c:2148 (discriminator 1)
+
+0x4016d309: wc_RsaFunction at /builds/esp-components/esp-wolfssl/wolfssl/wolfcrypt/src/rsa.c:2656
+
+0x4016d73a: RsaPublicEncryptEx at /builds/esp-components/esp-wolfssl/wolfssl/wolfcrypt/src/rsa.c:2776
+
+0x4016d831: wc_RsaPSS_Sign_ex at /builds/esp-components/esp-wolfssl/wolfssl/wolfcrypt/src/rsa.c:3501
+
+0x4016d856: wc_RsaPSS_Sign at /builds/esp-components/esp-wolfssl/wolfssl/wolfcrypt/src/rsa.c:3477
+
+0x4017c849: RsaSign at /builds/esp-components/esp-wolfssl/wolfssl/src/internal.c:3640
+
+0x401835c3: SendServerKeyExchange at /builds/esp-components/esp-wolfssl/wolfssl/src/internal.c:24196
+
+0x4015a11c: wolfSSL_accept at /builds/esp-components/esp-wolfssl/wolfssl/src/ssl.c:11975
+
+0x40121102: esp_wolfssl_server_session_create at /home/eltako/.bin/repo/esp-idf/components/esp-tls/esp_tls_wolfssl.c:477
+
+0x40120969: esp_tls_server_session_create at /home/eltako/.bin/repo/esp-idf/components/esp-tls/esp_tls.c:451
+
+0x400dec44: httpd_ssl_open at /home/eltako/.bin/repo/esp-idf/components/esp_https_server/src/https_server.c:104 (discriminator 13)
+
+0x4012266e: httpd_sess_new at /home/eltako/.bin/repo/esp-idf/components/esp_http_server/src/httpd_sess.c:79
+
+0x40121272: httpd_accept_conn at /home/eltako/.bin/repo/esp-idf/components/esp_http_server/src/httpd_main.c:65 (discriminator 15)
+
+0x40121413: httpd_server at /home/eltako/.bin/repo/esp-idf/components/esp_http_server/src/httpd_main.c:213 (discriminator 15)
+
+0x4012144f: httpd_thread at /home/eltako/.bin/repo/esp-idf/components/esp_http_server/src/httpd_main.c:229 (discriminator 15)
+
+0x40088bf1: vPortTaskWrapper at /home/eltako/.bin/repo/esp-idf/components/freertos/xtensa/port.c:143

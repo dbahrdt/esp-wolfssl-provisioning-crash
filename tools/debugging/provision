@@ -1,0 +1,30 @@
+#!/bin/bash
+SCRIPT=$(readlink -f $0)
+SCRIPTPATH=`dirname $SCRIPT`
+BASE_PATH=${SCRIPTPATH}
+PROJECT_DIR=`realpath ${BASE_PATH}/../../`
+
+CONFIG_FILE="${BASE_PATH}/.cfg"
+
+if [ ! -f "${CONFIG_FILE}" ]; then
+	echo "You have to provide a proper config file at ${CONFIG_FILE}."
+	echo "A sample can be found at ${BASE_PATH}"
+	exit 1
+fi
+
+source ${CONFIG_FILE}
+
+if [ -z "${POP}" ]; then
+	echo "POP is not set"
+	exit 1
+fi
+if [ -z "${SSID}" ]; then
+	echo "SSID is not set"
+	exit 1
+fi
+if [ -z "${PASSPHRASE}" ]; then
+	echo "PASSPHRASE is not set"
+	exit 1
+fi
+
+python ${IDF_PATH}/tools/esp_prov/esp_prov.py --transport softap --service_name "192.168.4.1:80" --sec_ver 1 --pop ${POP} --ssid ${SSID} --passphrase ${PASSPHRASE}

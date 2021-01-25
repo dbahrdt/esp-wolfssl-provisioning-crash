@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.5)
+if(DEFINED ENV{HOMEKIT_PATH})
+    set(EXTRA_COMPONENT_DIRS $ENV{HOMEKIT_PATH}/components $ENV{HOMEKIT_PATH}/components/homekit)
+else()
+	message(FATAL_ERROR "HOMEKIT_PATH is not set")
+endif()
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(mwe-wolfssl-crash)

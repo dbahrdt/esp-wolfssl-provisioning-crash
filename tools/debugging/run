@@ -1,0 +1,223 @@
+#!/bin/bash
+SCRIPT=$(readlink -f $0)
+SCRIPTPATH=`dirname $SCRIPT`
+BASE_PATH=${SCRIPTPATH}
+PROJECT_DIR=`realpath ${BASE_PATH}/../../`
+
+echo "Project directory: $PROJECT_DIR"
+
+IDF_CMD="idf.py -C $PROJECT_DIR"
+
+CONFIG_FILE="${BASE_PATH}/.cfg"
+PROVISION_WAIT_TIME=${PROVISION_WAIT_TIME:-15}
+
+if [ ! -f "${CONFIG_FILE}" ]; then
+	echo "You have to provide a proper config file at ${CONFIG_FILE}."
+	echo "A sample can be found at ${BASE_PATH}"
+	exit 1
+fi
+
+source ${CONFIG_FILE}
+
+if [ -z "${MONITOR_PORT}" ]; then
+	echo "MONITOR_PORT is not set"
+	exit 1
+fi
+if [ -z "${JTAG_PORT}" ]; then
+	echo "JTAG_PORT is not set"
+	exit 1
+fi
+if [ -z "${HAP_DATA}" ]; then
+	echo "HAP_DATA is not set"
+	exit 1
+fi
+
+#A very ugly way to extract the target
+HAP_PARITION_OFFSET=$(grep "factory_nvs," "$BASE_PATH/../../partitions_hap.csv" | egrep -o "(0x[0-9]+)" | head -n 1)
+
+if [ -z "$HAP_PARITION_OFFSET" ]; then
+	echo "Error: Could not determine hap parition offset"
+	exit 1
+fi
+
+#See https://stackoverflow.com/questions/192249/how-do-i-parse-command-line-arguments-in-bash
+
+# saner programming env: these switches turn some bugs into errors
+set -o errexit -o pipefail -o noclobber -o nounset
+
+# -allow a command to fail with !’s side effect on errexit
+# -use return value from ${PIPESTATUS[0]}, because ! hosed $?
+! getopt --test > /dev/null 
+if [[ ${PIPESTATUS[0]} -ne 4 ]]; then
+    echo 'I’m sorry, `getopt --test` failed in this environment.'
+    exit 1
+fi
+
+OPTIONS=cerfmdpvh
+LONGOPTS=clean,erase,factory-erase,flash,monitor,debug,provision,verbose,help
+
+# -regarding ! and PIPESTATUS see above
+# -temporarily store output to be able to check for errors
+# -activate quoting/enhanced mode (e.g. by writing out “--options”)
+# -pass arguments only via   -- "$@"   to separate them correctly
+! PARSED=$(getopt --options=$OPTIONS --longoptions=$LONGOPTS --name "$0" -- "$@")
+if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+    # e.g. return value is 1
+    #  then getopt has complained about wrong arguments to stdout
+    exit 2
+fi
+# read getopt’s output this way to handle the quoting right:
+eval set -- "$PARSED"
+
+clean_build=
+erase_flash=
+do_factory_erase=
+do_flash=
+do_monitor=
+do_debug=
+do_provision=
+be_verbose=
+# now enjoy the options in order and nicely split until we see --
+while true; do
+    case "$1" in
+        -c|--clean)
+            clean_build="clean build"
+            shift
+            ;;
+        -e|--erase)
+            erase_flash="erase_flash"
+            shift
+            ;;
+        -r|--factory-erase)
+            do_factory_erase="y"
+            shift
+            ;;
+        -f|--flash)
+            do_flash="flash"
+            shift
+            ;;
+        -v|--verbose)
+            be_verbose="--verbose"
+            shift
+            ;;
+        -m|--monitor)
+            do_monitor="y"
+            shift
+            ;;
+        -d|--debug)
+            do_debug="y"
+            shift
+            ;;
+        -p|--provision)
+            do_provision="y"
+            shift
+            ;;
+        -h|--help)
+            echo "flash --[c]lean --[e]rase --factory-e[r]ase --[f]lash --[v]erbose --[m]onitor --[d]ebug --[p]rovision"
+            echo "clean: clean build directory"
+            echo "erase: erase flash"
+            echo "factory-erase: erase factory partition"
+            echo "flash: flash firmware and hap data"
+            echo "monitor: start monitoring"
+            echo "debug: start openocd"
+            echo "provision: provision device after 10 seconds (only useful with -m)"
+            echo "All options can be used simultaneous"
+            exit 0
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            echo "Programming error"
+            exit 3
+            ;;
+    esac
+done
+
+if [ -n "${erase_flash}" ] && [ -n "${do_monitor}${do_debug}" ]; then
+	echo "Adding flash command since you requested monitor/debug action in conjunction with erase_flash"
+	do_flash="flash"
+fi
+
+if [ -n "${clean_build}${erase_flash}${do_flash}" ]; then
+
+	$IDF_CMD -p $MONITOR_PORT ${be_verbose} ${clean_build} ${erase_flash} ${do_flash} || {
+		echo "Flashing the firmware failed."
+		exit 1
+	}
+	
+	(
+		cd ${PROJECT_DIR}
+		esptool.py --port $MONITOR_PORT ${be_verbose} write_flash $HAP_PARITION_OFFSET $HAP_DATA
+	) || {
+		echo "Flashing the hap binary failed"
+		exit 1
+	}
+fi
+
+if [ "${do_factory_erase}" = "y" ]; then
+	#A very ugly way to extract the target
+	NVS_PARTITION=$(grep "^nvs," "partitions_hap.csv" | egrep -o "(0x[0-9]+)" | tr '\n' ' ')
+
+	if [ -z "$NVS_PARTITION" ]; then
+		echo "Error: Could not determine nvs parition"
+		exit 1
+	fi
+	echo "Erasing nvs partition"
+	(
+		cd ${PROJECT_DIR}
+		esptool.py --port $MONITOR_PORT ${be_verbose} erase_region $NVS_PARTITION
+	) || {
+		echo "Erasing nvs parition failed"
+		exit 1
+	}
+fi
+
+CHILDREN=""
+graceful_exit() {
+	for i in ${CHILDREN[@]}; do
+		/usr/bin/kill --signal QUIT --timeout 1000 TERM --timeout 1000 KILL -- ${i} > /dev/null 2>&1 || true
+	done
+	exit 0
+}
+
+trap 'graceful_exit' TERM INT HUP
+
+if [ "$do_debug" = "y" ]; then
+	OPENOCD_LOG_FILE="${BASE_PATH}/openocd.log"
+	rm "${OPENOCD_LOG_FILE}" > /dev/null 2>&1 || true
+	openocd -f ${OPENOCD_SCRIPTS}/board/esp32-wrover-kit-3.3v.cfg > "${OPENOCD_LOG_FILE}" 2>&1 &
+	childpid=${!}
+	CHILDREN="$childpid $CHILDREN"
+	sleep 1
+	#A very ugly way to check whether something went wrong
+	grep "Error" --color=never "${OPENOCD_LOG_FILE}" && {
+		#TODO: Should we propagate the error here?
+		graceful_exit
+	}
+fi
+
+if [ "$do_monitor" = "y" ]; then
+	if [ "$do_debug" = "y" ]; then
+		echo "Waiting for 5s to connect the debugger."
+		sleep 5
+	fi
+	if [ "$do_provision" = "y" ]; then
+		echo "Provisioning device in ${PROVISION_WAIT_TIME} seconds"
+		(sleep ${PROVISION_WAIT_TIME} && ${BASE_PATH}/provision) &
+		childpid=${!}
+		CHILDREN="$childpid $CHILDREN"
+	fi
+	$IDF_CMD -p $MONITOR_PORT ${be_verbose} monitor
+	graceful_exit
+elif [ "$do_debug" = "y" ]; then
+	$BASE_PATH/cgdb
+	graceful_exit
+fi
+
+if [ -n "$CHILDREN" ]; then
+	echo "Waiting for children to exit"
+	wait ${CHILDREN}
+fi

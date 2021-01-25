@@ -1,0 +1,50 @@
+#!/bin/bash
+
+SCRIPT=$(readlink -f $0)
+SCRIPTPATH=`dirname $SCRIPT`
+BASE_PATH=${SCRIPTPATH}
+
+cd $BASE_PATH
+
+#clean old files
+rm *.pem > /dev/null 2>&1
+rm index.txt > /dev/null 2>&1
+touch index.txt
+echo '01' > serial.txt
+
+#Generate ca
+openssl req -x509 -config openssl_ca.cfg -days 365 -newkey rsa:4096 -sha256 -nodes -out ca.pem -keyout cakey.pem -outform PEM
+
+#Generate server key with csr
+openssl req -config openssl_server.cfg -newkey rsa:2048 -sha256 -nodes -out cert.csr -keyout prvtkey.pem -outform PEM
+
+#Sign the previous csr
+openssl ca -config openssl_ca.cfg -policy signing_policy -extensions signing_req -out cert.pem -infiles cert.csr
+
+#Create a self-signed certificate from cert.csr
+openssl req -x509 -config openssl_server.cfg -key prvtkey.pem -in cert.csr -out certselfsign.pem -outform PEM
+
+#Get rid of the detailed cert information
+for i in ca.pem cert.pem certselfsign.pem; do
+	sed -i $i -z -e 's/.*\(-----BEGIN.*END\ CERTIFICATE-----\).*/\1\n/'
+done
+cat cert.pem ca.pem > fullchainopenssl.pem
+cat ca.pem cert.pem > fullchainwolfssl.pem
+
+#Print some information
+echo "CA Information. Should only allow signing"
+openssl x509 -in ca.pem -noout -purpose -text
+
+echo "End entity CA Signed, should not allow CA, needs EKUs"
+openssl x509 -in cert.pem -noout -purpose -text
+
+echo "End entity self signed, should not allow CA, needs EKUs"
+openssl x509 -in certselfsign.pem -noout -purpose -text
+
+echo "Verifying openssl chain"
+openssl verify -CAfile ca.pem fullchainopenssl.pem
+
+echo "You should add an appropriate entry to your dns resolution system (i.e. /etc/hosts)"
+echo "<device ip>   mwe.lan"
+echo "You can then use curl as follows:"
+echo "curl --cacert ca.pem https://mwe.lan:4443/test"
