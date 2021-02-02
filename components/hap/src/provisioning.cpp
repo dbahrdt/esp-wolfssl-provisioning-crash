@@ -56,7 +56,7 @@ void Provisioning::prov_event_handler(void *arg, esp_event_base_t event_base, in
             case WIFI_PROV_END:
                 /* De-initialize manager once provisioning is finished */
                 wifi_prov_mgr_deinit();
-				web::WebServer::getInstance().Start();
+				web::WebServer::getInstance().Start(std::chrono::seconds(5));
                 break;
             default:
                 break;
@@ -210,7 +210,7 @@ void Provisioning::provision()
             ESP_LOGE(TAG, "esp_wifi_start() failed: %d", err);
             return;
         } else {
-			web::WebServer::getInstance().Start();
+			web::WebServer::getInstance().Start(std::chrono::seconds(5));
         }
     }
 }

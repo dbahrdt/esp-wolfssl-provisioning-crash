@@ -36,11 +36,26 @@ WebServer::WebServer() {
 	
 };
 
-void WebServer::Start()
+void WebServer::delayed_start(void * params) {
+	std::chrono::milliseconds * delay = (std::chrono::milliseconds*) params;
+	ESP_LOGI(TAG, "Delaying restart by %d ms", int(delay->count()));
+	vTaskDelay(delay->count()/portTICK_PERIOD_MS);
+	delete delay;
+	WebServer::getInstance().Start(std::chrono::milliseconds(0));
+	vTaskDelete(0);
+}
+
+void WebServer::Start(std::chrono::milliseconds const & ms)
 {
 	if (_server) {
 		ESP_LOGI(TAG, "Web server is already running. Doing a restart.");
 		Stop();
+	}
+	
+	if (ms > std::chrono::milliseconds(0)) {
+		TaskHandle_t dummy;
+		xTaskCreate(WebServer::delayed_start, "WebServer delayed restart", 4096, new std::chrono::milliseconds(ms), tskIDLE_PRIORITY, &dummy );
+		return;
 	}
 	
     // Start API

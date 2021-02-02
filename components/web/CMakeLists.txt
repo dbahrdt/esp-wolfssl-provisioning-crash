@@ -10,3 +10,4 @@ idf_component_register(SRC_DIRS       "src"
 										"certs/certselfsign.pem"
                                         "certs/prvtkey.pem"
                        )
+target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
