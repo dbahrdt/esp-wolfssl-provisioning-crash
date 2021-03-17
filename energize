@@ -10,4 +10,4 @@ cd ${BASE_PATH}
 	exit 1
 }
 #clean, erase_flash, flash, monitor, provision
-${PROJECT_DIR}/tools/debugging/run -cefmp
+${PROJECT_DIR}/tools/debugging/run -cefm
