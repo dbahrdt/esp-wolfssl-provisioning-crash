@@ -6,7 +6,13 @@ BASE_PATH=${SCRIPTPATH}
 PROJECT_DIR=`realpath ${BASE_PATH}`
 
 echo "Generating hap data"
-$HOMEKIT_PATH/tools/factory_nvs_gen/factory_nvs_gen.py 12345678 70SX data/hap_12345678_70SX
+$HOMEKIT_PATH/tools/factory_nvs_gen/factory_nvs_gen.py 12345678 70SX data/hap_12345678_70SX || {
+	echo "Failed to generate hap data"
+	exit 1
+}
 
 echo "Generating CA and certificates"
-${BASE_PATH}/components/web/certs/gen
+${BASE_PATH}/components/web/certs/gen || {
+	echo "Failed to generated certificates"
+	exit 1
+}
