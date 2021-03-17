@@ -55,11 +55,13 @@ void HAPManager::init() {
 
     /* Add the Accessory to the HomeKit Database */
     hap_add_accessory(accessory);
+	#if defined(CONFIG_HAP_MFI_ENABLE)
 
 	if(hap_enable_mfi_auth(HAP_MFI_AUTH_HW) != HAP_SUCCESS) {
 		ESP_LOGE(TAG, "hap_enable_mfi_auth() failed");
 		throw std::runtime_error("hap_enable_mfi_auth() failed");
 	}
+	#endif
 }
 
 void HAPManager::provision() {
