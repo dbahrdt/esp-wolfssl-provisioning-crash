@@ -5,6 +5,9 @@ BASE_PATH=${SCRIPTPATH}
 PROJECT_DIR=`realpath ${BASE_PATH}`
 
 cd ${BASE_PATH}
-./gen-data
+./gen-data || {
+	echo "Generating data failed"
+	exit 1
+}
 #clean, erase_flash, flash, monitor, provision
 ${PROJECT_DIR}/tools/debugging/run -cefmp
