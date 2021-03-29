@@ -1,0 +1,11 @@
+version: '3.6'
+
+services:
+  mwe-wolfssl:
+    build: ./
+    image: mwe-wolfssl:latest
+    volumes:
+      - ./../:/project
+    working_dir: /project
+    devices:
+      - "/dev/ttyUSB0:/dev/ttyUSB0"
