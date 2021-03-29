@@ -1,14 +1,55 @@
-#!/bin/bash
-SCRIPT=$(readlink -f $0)
-SCRIPTPATH=`dirname $SCRIPT`
-BASE_PATH=${SCRIPTPATH}
+#!/usr/bin/env bash
+# This script helps with provisioning a device using the command line
+# Simply edit the configuration file located at ./.cfg
+# A sample file can be found at ./cfg
+# This script essentially calls esp_prov with the correct parameters which are defined in the configuration file
+# Thus a user does not have to type that information
+# Additionally this script can be used in other scripts for automatic provisioning
+
+# Determine the directory where this script resides in
+# This seems to be a very very difficult task
+# https://stackoverflow.com/questions/4774054/reliable-way-for-a-bash-script-to-get-the-full-path-to-itself
+# If you create a symlink or call this using a pipe, then you are on your own
+systemName="$(uname -s)"
+if [ "${systemName}" = "Linux" ]; then
+	SCRIPT=$(readlink -f $0)
+	SCRIPTPATH=`dirname $SCRIPT`
+	BASE_PATH=${SCRIPTPATH}
+else
+	SCRIPTPATH="$( cd "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+	BASE_PATH=${SCRIPTPATH}
+fi
+
+if [ -z "${BASE_PATH}" ]; then
+	echo "Error: Could not determine script path"
+	exit 1
+fi
+
+command -v realpath >/dev/null 2>&1 || {
+	echo "Error: Could not find realpath"
+   if [ "${systemName}" = "Darwin" ]; then
+		echo "Consider installing realpath"
+    fi
+	exit 1
+}
+
 PROJECT_DIR=`realpath ${BASE_PATH}/../../`
 
 CONFIG_FILE="${BASE_PATH}/.cfg"
-
 if [ ! -f "${CONFIG_FILE}" ]; then
 	echo "You have to provide a proper config file at ${CONFIG_FILE}."
 	echo "A sample can be found at ${BASE_PATH}"
+	exit 1
+fi
+
+if [ -z "${IDF_PATH}" ]; then
+	echo "Error: IDF_PATH is not set. Did you source the idf export script?"
+	exit 1
+fi
+
+ESP_PROV_BIN="${IDF_PATH}/tools/esp_prov/esp_prov.py"
+if [ ! -f "${ESP_PROV_BIN}" ]; then
+	echo "Could not find esp_prov.py at ${ESP_PROV_BIN}"
 	exit 1
 fi
 
@@ -27,4 +68,127 @@ if [ -z "${PASSPHRASE}" ]; then
 	exit 1
 fi
 
-python ${IDF_PATH}/tools/esp_prov/esp_prov.py --transport softap --service_name "192.168.4.1:80" --sec_ver 1 --pop ${POP} --ssid ${SSID} --passphrase ${PASSPHRASE}
+
+# saner programming env: these switches turn some bugs into errors
+set -o errexit
+set -o pipefail
+set -o noclobber
+# set -o nounset
+
+# -allow a command to fail with !’s side effect on errexit
+# -use return value from ${PIPESTATUS[0]}, because ! hosed $?
+! getopt --test > /dev/null 
+if [[ ${PIPESTATUS[0]} -ne 4 ]]; then
+    echo 'I’m sorry, `getopt --test` failed in this environment.'
+    if [ "${systemName}" = "Darwin" ]; then
+		echo "Consider installing gnu getopt"
+		echo "See https://stackoverflow.com/questions/12152077/how-can-i-make-bash-deal-with-long-param-using-getopt-command-in-mac"
+    fi
+    exit 1
+fi
+
+OPTIONS=ush
+LONGOPTS=universal,system,help
+
+# -regarding ! and PIPESTATUS see above
+# -temporarily store output to be able to check for errors
+# -activate quoting/enhanced mode (e.g. by writing out “--options”)
+# -pass arguments only via   -- "$@"   to separate them correctly
+! PARSED=$(getopt --options=$OPTIONS --longoptions=$LONGOPTS --name "$0" -- "$@")
+if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+    # e.g. return value is 1
+    #  then getopt has complained about wrong arguments to stdout
+    exit 2
+fi
+# read getopt’s output this way to handle the quoting right:
+eval set -- "$PARSED"
+
+do_system_provision=
+# now enjoy the options in order and nicely split until we see --
+while true; do
+    case "$1" in
+        -u|--universal)
+            do_system_provision="n"
+            shift
+            ;;
+        -s|--system)
+            do_system_provision="y"
+            shift
+            ;;
+        -h|--help)
+            echo "provision -[-u]niversal -[-s]ystem"
+            echo "universal: use universal provisioning"
+            echo "system: provision device using the REST-Api"
+            exit 0
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            echo "Programming error"
+            exit 3
+            ;;
+    esac
+done
+
+
+if [ ! "${do_system_provision}" = "y" ]; then
+	echo "Using universal provisioning"
+	python ${ESP_PROV_BIN} --transport softap --service_name "192.168.4.1:80" --sec_ver 1 --pop ${POP} --ssid ${SSID} --passphrase ${PASSPHRASE}
+else
+	echo "Using rest api to set the wifi config"
+
+	set +e
+	read -r -d '' rest_auth_data <<- EOM
+	{
+		"command" : "startup",
+		"value" : 1,
+		"ssid" : "${SSID}",
+		"password" : "${PASSPHRASE}"
+	}
+	EOM
+
+	read -r -d '' rest_reboot <<- EOM
+	{
+		"command" : "reboot"
+	}
+	EOM
+	set -e
+
+	if command -v curl >/dev/null 2>&1; then
+		curl -k -m 10 --location --request PATCH 'https://192.168.4.1:4443/system' --data-raw "${rest_auth_data}" || {
+			echo "Provisioning using the REST-API failed"
+			exit 1
+		}
+
+		curl -k -m 10 --location --request PATCH 'https://192.168.4.1:4443/system' --data-raw "${rest_reboot}" || {
+			echo "Failed to reboot the device using the REST-API"
+			exit 1
+		}
+	elif command -v curl >/dev/null 2>&1; then
+		wget --no-check-certificate --quiet \
+		--method PATCH \
+		--timeout=0 \
+		--header '' \
+		--body-data "${rest_auth_data}" \
+		'https://192.168.4.1:4443/system' || {
+			echo "Provisioning using the REST-API failed"
+			exit 1
+		}
+
+		wget --no-check-certificate --quiet \
+		--method PATCH \
+		--timeout=0 \
+		--header '' \
+		--body-data "${rest_reboot}" \
+		'https://192.168.4.1:4443/system' || {
+			echo "Failed to reboot the device using the REST-API"
+			exit 1
+		}
+	else
+		echo "No suitable command line http client available. Support options are cURL and wget"
+		exit 1
+	fi
+fi

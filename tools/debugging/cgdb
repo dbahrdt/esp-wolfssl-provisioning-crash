@@ -1,8 +1,84 @@
-#!/bin/bash
-SCRIPT=$(readlink -f $0)
-SCRIPTPATH=`dirname $SCRIPT`
-BASE_PATH=${SCRIPTPATH}
-PROJECT_DIR=`realpath ${BASE_PATH}/../../`
+#!/usr/bin/env bash
+# This script helps with debugging an espressif app using cgdb
+# It essentially sets the correct gdb binary and
+# uses a custom gdbinit file to load the firmware image and optionally reset/reboot the chip
+
+
+# Determine the directory where this script resides in
+# This seems to be a very very difficult task
+# https://stackoverflow.com/questions/4774054/reliable-way-for-a-bash-script-to-get-the-full-path-to-itself
+# If you create a symlink or call this using a pipe, then you are on your own
+systemName="$(uname -s)"
+if [ "${systemName}" = "Linux" ]; then
+	SCRIPT=$(readlink -f $0)
+	SCRIPTPATH=`dirname $SCRIPT`
+	BASE_PATH=${SCRIPTPATH}
+else
+	SCRIPTPATH="$( cd "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+	BASE_PATH=${SCRIPTPATH}
+fi
+
+if [ -z "${BASE_PATH}" ]; then
+	echo "Error: Could not determine script path"
+	exit 1
+fi
+
+command -v realpath >/dev/null 2>&1 || {
+	echo "Error: Could not find realpath"
+   if [ "${systemName}" = "Darwin" ]; then
+		echo "Consider installing realpath"
+    fi
+	exit 1
+}
+
+if [ -d "${PROJECT_DIR}" ]; then
+	echo "Using already set project dir: ${PROJECT_DIR}"
+	PROJECT_DIR=`realpath ${PROJECT_DIR}`
+else
+	PROJECT_DIR=`realpath ${BASE_PATH}/../../`
+fi
+
+if [ -z "${IDF_PATH}" ]; then
+	echo "Error: IDF_PATH is not set. Did you source the idf export script?"
+	exit 1
+fi
+
+BASE_CONFIG_FILE="${BASE_PATH}/.cfg"
+CONFIG_FILE="${PROJECT_DIR}/.debug_cfg"
+
+if [ ! -f "${BASE_CONFIG_FILE}" ] && [ ! -f "${CONFIG_FILE}" ]; then
+	echo "You have to provide a proper config file either at ${BASE_CONFIG_FILE} or ${CONFIG_FILE}."
+	echo "Note that ${BASE_CONFIG_FILE} is sourced before ${CONFIG_FILE}:"
+	echo "A sample can be found at ${BASE_PATH}"
+	exit 1
+fi
+
+if [ -s "${BASE_CONFIG_FILE}" ]; then
+	source "${BASE_CONFIG_FILE}"
+fi
+
+if [ -s "${CONFIG_FILE}" ]; then
+	source "${CONFIG_FILE}"
+fi
+
+if [ -z "${GDB_FIRMWARE_IMAGE}" ]; then
+	echo "GDB_FIRMWARE_IMAGE is not set"
+	exit 1
+fi
+
+if [ ! -r "${PROJECT_DIR}/${GDB_FIRMWARE_IMAGE}" ]; then
+	echo "firmware iamge at ${PROJECT_DIR}/${GDB_FIRMWARE_IMAGE} is not readable"
+fi
+
+command -v cgdb >/dev/null 2>&1 || {
+	echo "Error: Could not find cgdb"
+	exit 1
+}
+
+command -v xtensa-esp32-elf-gdb >/dev/null 2>&1 || {
+	echo "Error: Could not find the espressif gdb: xtensa-esp32-elf-gdb"
+	exit 1
+}
 
 # saner programming env: these switches turn some bugs into errors
 set -o errexit -o pipefail -o noclobber -o nounset
@@ -12,6 +88,10 @@ set -o errexit -o pipefail -o noclobber -o nounset
 ! getopt --test > /dev/null 
 if [[ ${PIPESTATUS[0]} -ne 4 ]]; then
     echo 'I’m sorry, `getopt --test` failed in this environment.'
+    if [ "${systemName}" = "Darwin" ]; then
+		echo "Consider installing gnu getopt"
+		echo "See https://stackoverflow.com/questions/12152077/how-can-i-make-bash-deal-with-long-param-using-getopt-command-in-mac"
+    fi
     exit 1
 fi
 
@@ -56,6 +136,7 @@ while true; do
     esac
 done
 
+export GDB_FIRMWARE_IMAGE
 
 if [ "$do_reset" = "y" ]; then
 	(

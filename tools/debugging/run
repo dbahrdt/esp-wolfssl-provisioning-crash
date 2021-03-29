@@ -1,23 +1,93 @@
-#!/bin/bash
-SCRIPT=$(readlink -f $0)
-SCRIPTPATH=`dirname $SCRIPT`
-BASE_PATH=${SCRIPTPATH}
-PROJECT_DIR=`realpath ${BASE_PATH}/../../`
+#!/usr/bin/env bash
+# This script helps with debugging an espressif firmware
+# It has various command line switches to
+#  - clean the build directoy
+#  - erase the flash or just the factory data
+#  - flash the firmware and auxiliary data like the factory_nvs data
+#  - run the app using idf.py monitor
+#  - run openocd in the background
+#  - provision the device
+#  - run cgdb
+# Configuration options are set in ./.cfg
+# See ./cfg for an example
+# 
+# A note about provisioning:
+# The provisioning script does not take care of connecting to the right wireless network
+# This has to be done by the user
+# Users of wpa_supplicant may simply add the network to their wpa_supplicant.conf
+# They can then set that network (via wpa_ctrl or other means) to be the only allowed network
+# In the future we may add scripts to change to the device network and back
+# 
+# Usage example:
+# For a clean start:
+# run -cem
+# This will clean the build directory, erase the flash and start monitoring (after reflashing)
+# 
+# To test provisioning
+# run -rmu
+# This will erase the provisioning data start monitoring and do a provisioning
+
+# Determine the directory where this script resides in
+# This seems to be a very very difficult task
+# https://stackoverflow.com/questions/4774054/reliable-way-for-a-bash-script-to-get-the-full-path-to-itself
+# If you create a symlink or call this using a pipe, then you are on your own
+systemName="$(uname -s)"
+if [ "${systemName}" = "Linux" ]; then
+	SCRIPT=$(readlink -f $0)
+	SCRIPTPATH=`dirname $SCRIPT`
+	BASE_PATH=${SCRIPTPATH}
+else
+	SCRIPTPATH="$( cd "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+	BASE_PATH=${SCRIPTPATH}
+fi
+
+if [ -z "${BASE_PATH}" ]; then
+	echo "Error: Could not determine script path"
+	exit 1
+fi
+
+if [ -d "${PROJECT_DIR}" ]; then
+	echo "Using project dir from command line: ${PROJECT_DIR}"
+	PROJECT_DIR=`realpath ${PROJECT_DIR}`
+else
+	PROJECT_DIR=`realpath ${BASE_PATH}/../../`
+fi
+
+if [ -z "${IDF_PATH}" ]; then
+	echo "Error: IDF_PATH is not set. Did you source the idf export script?"
+	exit 1
+fi
+
+command -v realpath >/dev/null 2>&1 || {
+	echo "Error: Could not find realpath"
+   if [ "${systemName}" = "Darwin" ]; then
+		echo "Consider installing realpath"
+    fi
+	exit 1
+}
 
 echo "Project directory: $PROJECT_DIR"
 
 IDF_CMD="idf.py -C $PROJECT_DIR"
+ESPTOOL_CMD="$IDF_PATH/components/esptool_py/esptool/esptool.py"
 
-CONFIG_FILE="${BASE_PATH}/.cfg"
-PROVISION_WAIT_TIME=${PROVISION_WAIT_TIME:-15}
+BASE_CONFIG_FILE="${BASE_PATH}/.cfg"
+CONFIG_FILE="${PROJECT_DIR}/.debug_cfg"
 
-if [ ! -f "${CONFIG_FILE}" ]; then
-	echo "You have to provide a proper config file at ${CONFIG_FILE}."
+if [ ! -f "${BASE_CONFIG_FILE}" ] && [ ! -f "${CONFIG_FILE}" ]; then
+	echo "You have to provide a proper config file either at ${BASE_CONFIG_FILE} or ${CONFIG_FILE}."
+	echo "Note that ${BASE_CONFIG_FILE} is sourced before ${CONFIG_FILE}:"
 	echo "A sample can be found at ${BASE_PATH}"
 	exit 1
 fi
 
-source ${CONFIG_FILE}
+if [ -s "${BASE_CONFIG_FILE}" ]; then
+	source "${BASE_CONFIG_FILE}"
+fi
+
+if [ -s "${CONFIG_FILE}" ]; then
+	source "${CONFIG_FILE}"
+fi
 
 if [ -z "${MONITOR_PORT}" ]; then
 	echo "MONITOR_PORT is not set"
@@ -28,19 +98,20 @@ if [ -z "${JTAG_PORT}" ]; then
 	exit 1
 fi
 if [ -z "${HAP_DATA}" ]; then
-	echo "HAP_DATA is not set"
+	echo "HAP_DATA is not set. Will not flash hap data"
+fi
+
+command -v idf.py >/dev/null 2>&1 || {
+	echo "Error: Could not find idf.py"
+	exit 1
+}
+
+if [ ! -x "${ESPTOOL_CMD}" ]; then
+	echo "Error: Could not find esptool.py at ${ESPTOOL_CMD}"
 	exit 1
 fi
 
-#A very ugly way to extract the target
-HAP_PARITION_OFFSET=$(grep "factory_nvs," "$BASE_PATH/../../partitions_hap.csv" | egrep -o "(0x[0-9]+)" | head -n 1)
-
-if [ -z "$HAP_PARITION_OFFSET" ]; then
-	echo "Error: Could not determine hap parition offset"
-	exit 1
-fi
-
-#See https://stackoverflow.com/questions/192249/how-do-i-parse-command-line-arguments-in-bash
+# See https://stackoverflow.com/questions/192249/how-do-i-parse-command-line-arguments-in-bash
 
 # saner programming env: these switches turn some bugs into errors
 set -o errexit -o pipefail -o noclobber -o nounset
@@ -50,11 +121,15 @@ set -o errexit -o pipefail -o noclobber -o nounset
 ! getopt --test > /dev/null 
 if [[ ${PIPESTATUS[0]} -ne 4 ]]; then
     echo 'I’m sorry, `getopt --test` failed in this environment.'
+    if [ "${systemName}" = "Darwin" ]; then
+		echo "Consider installing gnu getopt and set it as your default getopt:"
+		echo "See https://stackoverflow.com/questions/12152077/how-can-i-make-bash-deal-with-long-param-using-getopt-command-in-mac"
+    fi
     exit 1
 fi
 
-OPTIONS=cerfmdpvh
-LONGOPTS=clean,erase,factory-erase,flash,monitor,debug,provision,verbose,help
+OPTIONS=cerfmdusvh
+LONGOPTS=clean,erase,factory-erase,flash,monitor,debug,universal-provision,system-provision,verbose,help
 
 # -regarding ! and PIPESTATUS see above
 # -temporarily store output to be able to check for errors
@@ -77,6 +152,7 @@ do_monitor=
 do_debug=
 do_provision=
 be_verbose=
+provision_mode=
 # now enjoy the options in order and nicely split until we see --
 while true; do
     case "$1" in
@@ -108,19 +184,26 @@ while true; do
             do_debug="y"
             shift
             ;;
-        -p|--provision)
+        -u|--universal-provision)
             do_provision="y"
+            provision_mode="universal"
+            shift
+            ;;
+        -s|--system-provision)
+            do_provision="y"
+            provision_mode="system"
             shift
             ;;
         -h|--help)
-            echo "flash --[c]lean --[e]rase --factory-e[r]ase --[f]lash --[v]erbose --[m]onitor --[d]ebug --[p]rovision"
+            echo "flash --[c]lean --[e]rase --factory-e[r]ase --[f]lash --[v]erbose --[m]onitor --[d]ebug --[u]niversal-provision --[s]ystem-provision"
             echo "clean: clean build directory"
             echo "erase: erase flash"
             echo "factory-erase: erase factory partition"
             echo "flash: flash firmware and hap data"
             echo "monitor: start monitoring"
             echo "debug: start openocd"
-            echo "provision: provision device after 10 seconds (only useful with -m)"
+            echo "universal-provision: provision device after ${PROVISION_WAIT_TIME} seconds using universal provisioning (only useful with -m)"
+            echo "system-provision: provision device after ${PROVISION_WAIT_TIME} seconds using the reset api (only useful with -m)"
             echo "All options can be used simultaneous"
             exit 0
             shift
@@ -136,7 +219,7 @@ while true; do
     esac
 done
 
-if [ -n "${erase_flash}" ] && [ -n "${do_monitor}${do_debug}" ]; then
+if [ -n "${erase_flash}" ] && [ -n "${do_monitor}${do_debug}" ] && [ -z "${do_flash}" ]; then
 	echo "Adding flash command since you requested monitor/debug action in conjunction with erase_flash"
 	do_flash="flash"
 fi
@@ -147,10 +230,22 @@ if [ -n "${clean_build}${erase_flash}${do_flash}" ]; then
 		echo "Flashing the firmware failed."
 		exit 1
 	}
-	
+fi
+
+#We also have to re-flash the factory binary during a factory reset since hap-disabled startups store the wifi data on that partition
+if { [ -n "${HAP_DATA}" ]; } && { [ -n "${clean_build}${erase_flash}${do_flash}" ] || [ "${do_factory_erase}" = "y" ]; } then
+
+	#A very ugly way to extract the target
+	HAP_PARITION_OFFSET=$(grep "factory_nvs," "${PROJECT_DIR}/partitions_hap.csv" | grep -E -o "(0x[0-9]+)" | head -n 1)
+
+	if [ -z "$HAP_PARITION_OFFSET" ]; then
+		echo "Error: Could not determine hap parition offset"
+		exit 1
+	fi
+
 	(
 		cd ${PROJECT_DIR}
-		esptool.py --port $MONITOR_PORT ${be_verbose} write_flash $HAP_PARITION_OFFSET $HAP_DATA
+		${ESPTOOL_CMD} --port $MONITOR_PORT ${be_verbose} write_flash $HAP_PARITION_OFFSET $HAP_DATA
 	) || {
 		echo "Flashing the hap binary failed"
 		exit 1
@@ -158,8 +253,8 @@ if [ -n "${clean_build}${erase_flash}${do_flash}" ]; then
 fi
 
 if [ "${do_factory_erase}" = "y" ]; then
-	#A very ugly way to extract the target
-	NVS_PARTITION=$(grep "^nvs," "partitions_hap.csv" | egrep -o "(0x[0-9]+)" | tr '\n' ' ')
+	# A very ugly way to extract the target
+	NVS_PARTITION=$(grep "^nvs," "${PROJECT_DIR}/partitions_hap.csv" | grep -E -o "(0x[0-9]+)" | tr '\n' ' ')
 
 	if [ -z "$NVS_PARTITION" ]; then
 		echo "Error: Could not determine nvs parition"
@@ -168,7 +263,7 @@ if [ "${do_factory_erase}" = "y" ]; then
 	echo "Erasing nvs partition"
 	(
 		cd ${PROJECT_DIR}
-		esptool.py --port $MONITOR_PORT ${be_verbose} erase_region $NVS_PARTITION
+		${ESPTOOL_CMD} --port $MONITOR_PORT ${be_verbose} erase_region $NVS_PARTITION
 	) || {
 		echo "Erasing nvs parition failed"
 		exit 1
@@ -177,12 +272,13 @@ fi
 
 CHILDREN=""
 graceful_exit() {
-	for i in ${CHILDREN[@]}; do
+	for i in ${CHILDREN}; do
 		/usr/bin/kill --signal QUIT --timeout 1000 TERM --timeout 1000 KILL -- ${i} > /dev/null 2>&1 || true
 	done
 	exit 0
 }
 
+# Make sure we kill our children if we're killed
 trap 'graceful_exit' TERM INT HUP
 
 if [ "$do_debug" = "y" ]; then
@@ -192,7 +288,7 @@ if [ "$do_debug" = "y" ]; then
 	childpid=${!}
 	CHILDREN="$childpid $CHILDREN"
 	sleep 1
-	#A very ugly way to check whether something went wrong
+	# A very ugly way to check whether something went wrong
 	grep "Error" --color=never "${OPENOCD_LOG_FILE}" && {
 		#TODO: Should we propagate the error here?
 		graceful_exit
@@ -205,8 +301,12 @@ if [ "$do_monitor" = "y" ]; then
 		sleep 5
 	fi
 	if [ "$do_provision" = "y" ]; then
-		echo "Provisioning device in ${PROVISION_WAIT_TIME} seconds"
-		(sleep ${PROVISION_WAIT_TIME} && ${BASE_PATH}/provision) &
+		echo "Provisioning device in ${PROVISION_WAIT_TIME} seconds using ${provision_mode} provisioning"
+		PROVISION_OPTS=""
+		if [ "${provision_mode}" = "system" ]; then
+			PROVISION_OPTS="${PROVISION_OPTS} -s"
+		fi
+		(sleep ${PROVISION_WAIT_TIME} && ${BASE_PATH}/provision ${PROVISION_OPTS}) &
 		childpid=${!}
 		CHILDREN="$childpid $CHILDREN"
 	fi

@@ -1,4 +1,7 @@
 #The firmware file, relative to your cwd
-file build/mwe-wolfssl-crash.elf
+python
+import os
+gdb.execute("file {}".format(os.environ['GDB_FIRMWARE_IMAGE']))
+end
 target remote :3333
 set remote hardware-watchpoint-limit 2

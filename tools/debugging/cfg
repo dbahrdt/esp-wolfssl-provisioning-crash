@@ -1,3 +1,9 @@
+#Image to be debugged, relative to project dir
+GDB_FIRMWARE_IMAGE=${GDB_FIRMWARE_IMAGE:-build/mwe-wolfssl-crash.elf}
+
+#Number of seconds to wait before starting provisioning
+PROVISION_WAIT_TIME=${PROVISION_WAIT_TIME:-15}
+
 #Full path to the serial device used for communication with the device
 MONITOR_PORT="/dev/ttyUSB1"
 #Full path to the serial device used for JTAG debugging
@@ -5,7 +11,7 @@ JTAG_PORT="/dev/ttyUSB0"
 #Path relative to project directory
 HAP_DATA="data/hap_12345678_70SX.bin"
 
-#The posession-of-proof string
+#The posession-of-proof string (10 digits to be found on the sticker)
 POP="106000115"
 #SSID of the target network
 SSID=
