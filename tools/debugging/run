@@ -157,7 +157,7 @@ provision_mode=
 while true; do
     case "$1" in
         -c|--clean)
-            clean_build="clean build"
+            clean_build="fullclean build"
             shift
             ;;
         -e|--erase)
