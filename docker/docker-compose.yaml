@@ -1,9 +1,37 @@
 version: '3.6'
 
 services:
-  mwe-wolfssl:
-    build: ./
+  mwe-wolfssl-latest:
+    build:
+      context: ./
+      args:
+        - IDF_TAG=latest
     image: mwe-wolfssl:latest
+    volumes:
+      - ./../:/project
+    working_dir: /project
+    devices:
+      - "/dev/ttyUSB0:/dev/ttyUSB0"
+
+  mwe-wolfssl-4.3:
+    build:
+      context: ./
+      args:
+        - IDF_TAG=release-v4.2
+    image: mwe-wolfssl:4.3
+    volumes:
+      - ./../:/project
+    working_dir: /project
+    devices:
+      - "/dev/ttyUSB0:/dev/ttyUSB0"
+
+
+  mwe-wolfssl-4.2:
+    build:
+      context: ./
+      args:
+        - IDF_TAG=release-v4.2
+    image: mwe-wolfssl:4.2
     volumes:
       - ./../:/project
     working_dir: /project

@@ -1,4 +1,5 @@
-from espressif/idf:release-v4.3 as Base
+ARG IDF_TAG
+from espressif/idf:${IDF_TAG} as Base
 
 ENV HOMEKIT_PATH="/opt/esp/homekit-sdk"
 RUN git clone --recursive https://github.com/espressif/esp-homekit-sdk.git ${HOMEKIT_PATH}
