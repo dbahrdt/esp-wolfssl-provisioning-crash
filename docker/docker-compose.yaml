@@ -17,7 +17,7 @@ services:
     build:
       context: ./
       args:
-        - IDF_TAG=release-v4.2
+        - IDF_TAG=release-v4.3
     image: mwe-wolfssl:4.3
     volumes:
       - ./../:/project
